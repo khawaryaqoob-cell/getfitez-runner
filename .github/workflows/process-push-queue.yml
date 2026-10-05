@@ -1,0 +1,80 @@
+# GENERATED — source of truth is the PRIVATE repo:
+#   khawaryaqoob-cell/be-fit-pro @ .github/workflows/process-push-queue.yml
+#
+# This public repo exists ONLY to run the scheduled jobs on a free, high-priority
+# runner pool. It contains workflow YAML and nothing else: no application code,
+# no business logic, no secrets in source. Each job checks out the PRIVATE repo
+# with PRIVATE_REPO_TOKEN and runs the real scripts from there.
+#
+# To change a schedule or a step, edit the PRIVATE repo's copy and re-run
+#   node scripts/generateRunnerRepo.cjs
+# (copy that script into the private repo) — never hand-edit the file here.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   PRIVATE_REPO_TOKEN    fine-grained PAT, contents:read on be-fit-pro ONLY
+#   FIREBASE_SA_KEY       master instance service account
+#   GETFITEZ1_SA_KEY      getfitez1 instance service account
+#   SAFEPAY_SECRET_KEY    SafePay secret key (sandbox)
+#   SAFEPAY_MERCHANT_API_KEY
+#   EMAIL_CRED_PRIVATE_KEY + 3 × Cloudinary keys (email + media workflows)
+#
+# The Apps Script relay dispatches workflow_dispatch at a hardcoded repo. Until
+# it is repointed here, relay pings still land on the PRIVATE repo — so the
+# cron path benefits from the public runner while the "Send now" fast path does
+# not. See README.md.
+name: Process Push Queue
+
+# Delivers queued Admin Announcements (Admin › Announcements → pushQueue)
+# to EACH instance's own Firestore/FCM project. Spark-safe: hourly GitHub
+# cron instead of scheduled Cloud Functions (ARCHITECTURE_SAAS.md §12).
+#
+# The instance matrix is GENERATED from scripts/instances/fleet.json by
+# scripts/genFleetMatrix.cjs (commit the regenerated file when fleet.json
+# changes) — same shape as the email dispatcher. Each leg needs a repo
+# secret <INSTANCE_UPPER>_SA_KEY; the master keeps FIREBASE_SA_KEY.
+on:
+  schedule:
+    - cron: '5 * * * *'      # 5 past every hour
+  workflow_dispatch: {}      # manual "send now" button
+
+jobs:
+  dispatch:
+    strategy:
+      matrix:
+        include:
+          - instance: be-fit-pro
+            secret: FIREBASE_SA_KEY
+          - instance: getfitez1
+            secret: GETFITEZ1_SA_KEY
+            # ← generated: add one leg per fleet.json instance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+        with:
+
+          repository: khawaryaqoob-cell/be-fit-pro
+
+          ref: main
+
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install admin sdk
+        # Only firebase-admin is required by the dispatcher — a targeted
+        # install runs ~4x faster than npm ci of the full app tree, so
+        # "Send now" dispatches land in well under a minute.
+        run: npm install firebase-admin@latest --no-audit --fund=false
+
+      - name: Restore service account key (${{ matrix.instance }})
+        env:
+          SA_KEY: ${{ secrets[matrix.secret] }}
+        run: |
+          if [ -z "$SA_KEY" ]; then echo "::error::${{ matrix.secret }} missing (repo → Settings → Secrets and variables → Actions)"; exit 1; fi
+          printf '%s' "$SA_KEY" > scripts/${{ matrix.instance }}-sa.json
+
+      - name: Deliver queued pushes (${{ matrix.instance }})
+        run: node scripts/processPushQueue.cjs --instance=${{ matrix.instance }} --confirm

@@ -1,0 +1,79 @@
+# GENERATED — source of truth is the PRIVATE repo:
+#   khawaryaqoob-cell/be-fit-pro @ .github/workflows/media-sweep.yml
+#
+# This public repo exists ONLY to run the scheduled jobs on a free, high-priority
+# runner pool. It contains workflow YAML and nothing else: no application code,
+# no business logic, no secrets in source. Each job checks out the PRIVATE repo
+# with PRIVATE_REPO_TOKEN and runs the real scripts from there.
+#
+# To change a schedule or a step, edit the PRIVATE repo's copy and re-run
+#   node scripts/generateRunnerRepo.cjs
+# (copy that script into the private repo) — never hand-edit the file here.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   PRIVATE_REPO_TOKEN    fine-grained PAT, contents:read on be-fit-pro ONLY
+#   FIREBASE_SA_KEY       master instance service account
+#   GETFITEZ1_SA_KEY      getfitez1 instance service account
+#   SAFEPAY_SECRET_KEY    SafePay secret key (sandbox)
+#   SAFEPAY_MERCHANT_API_KEY
+#   EMAIL_CRED_PRIVATE_KEY + 3 × Cloudinary keys (email + media workflows)
+#
+# The Apps Script relay dispatches workflow_dispatch at a hardcoded repo. Until
+# it is repointed here, relay pings still land on the PRIVATE repo — so the
+# cron path benefits from the public runner while the "Send now" fast path does
+# not. See README.md.
+name: Media Sweep
+
+# Weekly Cloudinary reconciliation (A18): destroys assets under media/ that
+# NOTHING in Firestore references anymore and that are older than the 7-day
+# grace window (in-flight-upload protection — see scripts/mediaSweep.cjs).
+# Spark-safe: FIREBASE_SA_KEY + the three CLOUDINARY_* repo secrets.
+on:
+  schedule:
+    - cron: '15 3 * * 0'     # Sundays 03:15 UTC — before the week's traffic
+  workflow_dispatch:
+    inputs:
+      grace_days:
+        description: 'Grace window override (days). 0 = reclaim ALL unreferenced assets now (first-run verification).'
+        required: false
+        default: '7'
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+        with:
+
+          repository: khawaryaqoob-cell/be-fit-pro
+
+          ref: main
+
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install admin sdk
+        run: npm install firebase-admin@latest --no-audit --fund=false
+
+      - name: Restore service account key
+        env:
+          SA_KEY: ${{ secrets.FIREBASE_SA_KEY }}
+        run: |
+          if [ -z "$SA_KEY" ]; then echo "::error::FIREBASE_SA_KEY missing"; exit 1; fi
+          printf '%s' "$SA_KEY" > scripts/be-fit-pro-sa.json
+
+      - name: Sweep orphaned media
+        env:
+          CLOUDINARY_CLOUD: ${{ secrets.CLOUDINARY_CLOUD }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+          GRACE_DAYS: ${{ github.event.inputs.grace_days || '7' }}
+        # dry-run FIRST so a config problem never destroys anything; then the
+        # real sweep. Both log fully — the Actions history is the audit trail.
+        run: |
+          node scripts/mediaSweep.cjs --grace-days="$GRACE_DAYS"
+          node scripts/mediaSweep.cjs --confirm --grace-days="$GRACE_DAYS"

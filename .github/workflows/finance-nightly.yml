@@ -1,0 +1,77 @@
+# GENERATED — source of truth is the PRIVATE repo:
+#   khawaryaqoob-cell/be-fit-pro @ .github/workflows/finance-nightly.yml
+#
+# This public repo exists ONLY to run the scheduled jobs on a free, high-priority
+# runner pool. It contains workflow YAML and nothing else: no application code,
+# no business logic, no secrets in source. Each job checks out the PRIVATE repo
+# with PRIVATE_REPO_TOKEN and runs the real scripts from there.
+#
+# To change a schedule or a step, edit the PRIVATE repo's copy and re-run
+#   node scripts/generateRunnerRepo.cjs
+# (copy that script into the private repo) — never hand-edit the file here.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   PRIVATE_REPO_TOKEN    fine-grained PAT, contents:read on be-fit-pro ONLY
+#   FIREBASE_SA_KEY       master instance service account
+#   GETFITEZ1_SA_KEY      getfitez1 instance service account
+#   SAFEPAY_SECRET_KEY    SafePay secret key (sandbox)
+#   SAFEPAY_MERCHANT_API_KEY
+#   EMAIL_CRED_PRIVATE_KEY + 3 × Cloudinary keys (email + media workflows)
+#
+# The Apps Script relay dispatches workflow_dispatch at a hardcoded repo. Until
+# it is repointed here, relay pings still land on the PRIVATE repo — so the
+# cron path benefits from the public runner while the "Send now" fast path does
+# not. See README.md.
+name: Finance Nightly Sweep
+
+# docs/Types_Packages of Memberships.md gap 4: overdue status only advanced
+# when an admin opened the dashboard, so the defaulter table was stale until
+# someone looked. This daily pass flips stale statuses so the Members &
+# Payments table is true every morning. Spark-safe: GitHub cron, no Cloud
+# Functions. Same instance-matrix scheme as nudge-planner.yml (generated from
+# scripts/instances/fleet.json — regenerate when fleet.json changes).
+on:
+  schedule:
+    - cron: '30 3 * * *'     # 03:30 UTC — before nudges (04:00) and push dispatch (05:00)
+  workflow_dispatch: {}      # manual run button
+
+jobs:
+  sweep:
+
+    strategy:
+      matrix:
+        include:
+          - instance: be-fit-pro
+            secret: FIREBASE_SA_KEY
+          - instance: getfitez1
+            secret: GETFITEZ1_SA_KEY
+            # ← generated: add one leg per fleet.json instance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: khawaryaqoob-cell/be-fit-pro
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install firebase-admin
+        run: npm install firebase-admin@latest --no-audit --fund=false
+
+      - name: Restore service account key
+        env:
+          SA_KEY: ${{ secrets[matrix.secret] }}
+        run: |
+          if [ -z "$SA_KEY" ]; then
+            echo "::error::${{ matrix.secret }} secret is NOT set (or empty)."
+            echo "Fix: repo Settings → Secrets and variables → Actions → New repository secret"
+            exit 1
+          fi
+          printf '%s' "$SA_KEY" > scripts/${{ matrix.instance }}-sa.json
+          node -e "const j=JSON.parse(require('fs').readFileSync('scripts/${{ matrix.instance }}-sa.json','utf8'));console.log('SA key valid ✓ project:',j.project_id)"
+
+      - name: Sweep overdue statuses
+        run: node scripts/financeSweep.cjs --instance=${{ matrix.instance }} --confirm

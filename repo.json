@@ -1,0 +1,8 @@
+{
+  "name": "getfitez-runner",
+  "description": "Public Actions runner for the private be-fit-pro repo — scheduled jobs only, no business logic",
+  "private": false,
+  "auto_init": false,
+  "has_issues": false,
+  "has_wiki": false
+}

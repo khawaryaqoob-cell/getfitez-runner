@@ -1,0 +1,124 @@
+# GENERATED — source of truth is the PRIVATE repo:
+#   khawaryaqoob-cell/be-fit-pro @ .github/workflows/process-safepay-queue.yml
+#
+# This public repo exists ONLY to run the scheduled jobs on a free, high-priority
+# runner pool. It contains workflow YAML and nothing else: no application code,
+# no business logic, no secrets in source. Each job checks out the PRIVATE repo
+# with PRIVATE_REPO_TOKEN and runs the real scripts from there.
+#
+# To change a schedule or a step, edit the PRIVATE repo's copy and re-run
+#   node scripts/generateRunnerRepo.cjs
+# (copy that script into the private repo) — never hand-edit the file here.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   PRIVATE_REPO_TOKEN    fine-grained PAT, contents:read on be-fit-pro ONLY
+#   FIREBASE_SA_KEY       master instance service account
+#   GETFITEZ1_SA_KEY      getfitez1 instance service account
+#   SAFEPAY_SECRET_KEY    SafePay secret key (sandbox)
+#   SAFEPAY_MERCHANT_API_KEY
+#   EMAIL_CRED_PRIVATE_KEY + 3 × Cloudinary keys (email + media workflows)
+#
+# The Apps Script relay dispatches workflow_dispatch at a hardcoded repo. Until
+# it is repointed here, relay pings still land on the PRIVATE repo — so the
+# cron path benefits from the public runner while the "Send now" fast path does
+# not. See README.md.
+name: Process SafePay Queue
+
+# SafePay checkout runner — the ONLY place the SafePay secret exists.
+# Spark-safe: GitHub cron instead of Cloud Functions (ARCHITECTURE_SAAS.md §12).
+#
+# Two ways in:
+#   · schedule       — every 5 min, the safety net (mints anything pending,
+#                      settles anything awaiting confirmation, expires stale)
+#   · workflow_dispatch — fired by the Apps Script relay for the FAST path:
+#                      a gym clicks "Pay now", the browser writes a pending
+#                      intent and pings the relay, so the checkout URL appears
+#                      in ~1 min instead of ~5. Same script, no inputs needed —
+#                      it always sweeps the whole queue.
+#
+# Repo secrets required (Settings → Secrets and variables → Actions):
+#   SAFEPAY_SECRET_KEY         secret key (X-SFPY-MERCHANT-SECRET)
+#   SAFEPAY_MERCHANT_API_KEY   public sec_... key sent as merchant_api_key
+#   <INSTANCE_UPPER>_SA_KEY    contents of scripts/<instance>-sa.json
+# SAFEPAY_ENV / SAFEPAY_APP_ORIGIN are plain per-leg values below.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  safepay:
+
+    strategy:
+      matrix:
+        include:
+          # sandbox until the live account + payment methods are approved, then
+          # flip sfpyEnv to 'production' and set the live secrets.
+          - instance: getfitez1
+            secret: GETFITEZ1_SA_KEY
+            sfpyEnv: sandbox
+            appOrigin: https://getfitez1.web.app
+          # ← add one leg per fleet.json instance that sells subscriptions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: khawaryaqoob-cell/be-fit-pro
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deps
+        # firebase-admin drives Firestore; @sfpy/node-core is SafePay's server
+        # SDK. Targeted install keeps every 5-minute run fast.
+        #
+        # `axios` is NOT a declared dependency of @sfpy/node-core@0.3.5 — the SDK
+        # requires it at runtime but only declares `qs`. Without this the require
+        # dies with MODULE_NOT_FOUND 'axios' on every mint. (Found by the live key
+        # probe 2026-10-05; re-check on SDK upgrade, then drop it if upstream fixes.)
+        run: npm install firebase-admin@latest @sfpy/node-core axios --no-audit --fund=false
+
+      - name: Restore service account key (${{ matrix.instance }})
+        env:
+          SA_KEY: ${{ secrets[matrix.secret] }}
+        run: |
+          if [ -z "$SA_KEY" ]; then echo "::error::${{ matrix.secret }} missing (repo → Settings → Secrets and variables → Actions)"; exit 1; fi
+          printf '%s' "$SA_KEY" > scripts/${{ matrix.instance }}-sa.json
+
+      - name: Restore SafePay credentials (${{ matrix.instance }})
+        env:
+          SP_SECRET: ${{ secrets.SAFEPAY_SECRET_KEY }}
+          SP_API_KEY: ${{ secrets.SAFEPAY_MERCHANT_API_KEY }}
+        run: |
+          # Before go-live these secrets legitimately don't exist yet. Failing
+          # hard here would paint the repo red every 5 minutes and train us to
+          # ignore red — so degrade to a loud warning and a read-only sweep.
+          if [ -z "$SP_SECRET" ] || [ -z "$SP_API_KEY" ]; then
+            echo "::warning::SafePay credentials not configured — skipping the live sweep. Add SAFEPAY_SECRET_KEY + SAFEPAY_MERCHANT_API_KEY (repo → Settings → Secrets and variables → Actions). See SAFEPAY_INTEGRATION.md §6."
+            echo "SAFEPAY_CONFIGURED=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          {
+            echo "SAFEPAY_SECRET_KEY<<EOF"
+            printf '%s\n' "$SP_SECRET"
+            echo "EOF"
+            echo "SAFEPAY_MERCHANT_API_KEY<<EOF"
+            printf '%s\n' "$SP_API_KEY"
+            echo "EOF"
+            echo "SAFEPAY_CONFIGURED=true"
+          } >> "$GITHUB_ENV"
+          echo "SafePay credentials restored ✓ (values not echoed)"
+
+      - name: Mint + settle checkout intents (${{ matrix.instance }})
+        if: env.SAFEPAY_CONFIGURED == 'true'
+        env:
+          SAFEPAY_ENV: ${{ matrix.sfpyEnv }}
+          SAFEPAY_APP_ORIGIN: ${{ matrix.appOrigin }}
+        run: node scripts/processSafepayQueue.cjs --instance=${{ matrix.instance }} --confirm
+
+      - name: Queue sweep (read-only, credentials not configured yet)
+        if: env.SAFEPAY_CONFIGURED != 'true'
+        run: node scripts/processSafepayQueue.cjs --instance=${{ matrix.instance }}

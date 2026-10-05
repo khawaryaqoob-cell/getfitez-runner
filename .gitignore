@@ -1,0 +1,10 @@
+# Nothing but workflow YAML belongs here, but belt-and-braces:
+# never let a credential land in this repo, whatever the mistake.
+*-sa.json
+*adminsdk*.json
+*serviceAccount*
+.env
+.dev.vars
+*.pem
+secrets*
+node_modules/
