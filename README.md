@@ -34,8 +34,15 @@ there:
 ```
 
 The workflow files here are **generated**. The source of truth is the private
-repo's `.github/workflows/*.yml`. Never hand-edit the files here — change the
-private copy and re-run the generator.
+repo's `.github/workflows/*.yml`, and the generator lives there too:
+
+```bash
+node scripts/generateRunnerRepo.cjs     # writes .runner-repo-out/
+```
+
+Copy `.runner-repo-out/.github/workflows/` over `.github/workflows/` here and
+push. Never hand-edit the files in this repo — change the private copy and
+regenerate, or the two will drift silently.
 
 ## What is NOT here, and why
 
