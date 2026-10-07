@@ -51,20 +51,6 @@ public repository never receives the private repository's push events. Moving
 it would silently stop the gate from running on every push and would stop
 deploy-on-green. Push-triggered work must stay where the pushes happen.
 
-## Required repository secrets
-
-Set these under **Settings → Secrets and variables → Actions**:
-
-| Secret | Purpose |
-|---|---|
-| `PRIVATE_REPO_TOKEN` | Fine-grained PAT, **`contents: read` on `be-fit-pro` only** |
-| `FIREBASE_SA_KEY` | Master instance service account JSON |
-| `GETFITEZ1_SA_KEY` | getfitez1 instance service account JSON |
-| `SAFEPAY_SECRET_KEY` | SafePay secret key (sandbox) |
-| `SAFEPAY_MERCHANT_API_KEY` | SafePay merchant API key |
-| `EMAIL_CRED_PRIVATE_KEY` | Per-staff Gmail credential encryption key |
-| Cloudinary ×3 | Image/media pipeline |
-
 GitHub **never displays an existing secret's value**, so these cannot be copied
 programmatically from the private repo — each must be re-entered from its
 original source.
