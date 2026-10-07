@@ -34,6 +34,10 @@ name: Process SafePay Queue
 #   SAFEPAY_SECRET_KEY         secret key (X-SFPY-MERCHANT-SECRET)
 #   SAFEPAY_MERCHANT_API_KEY   public sec_... key sent as merchant_api_key
 #   <INSTANCE_UPPER>_SA_KEY    contents of scripts/<instance>-sa.json
+#   EMAIL_CRED_PRIVATE_KEY     RSA private twin of applicationSettings/emailKey
+#                              (decrypts each gym's paymentCredentials vault —
+#                              member_fee intents CANNOT mint without it; SaaS
+#                              intents are unaffected if it is absent)
 # SAFEPAY_ENV / SAFEPAY_APP_ORIGIN are plain per-leg values below.
 on:
   schedule:
@@ -107,6 +111,21 @@ jobs:
             echo "SAFEPAY_CONFIGURED=true"
           } >> "$GITHUB_ENV"
           echo "SafePay credentials restored ✓ (values not echoed)"
+
+      - name: Restore vault decrypt key (member payment credentials)
+        env:
+          VAULT_KEY: ${{ secrets.EMAIL_CRED_PRIVATE_KEY }}
+        run: |
+          # Optional at install time: without it, platform (SaaS) intents run
+          # fine and every member_fee intent fails with a visible
+          # vault_decrypt_failed reason — retrying a missing key cannot work,
+          # so fail-fast is the right behaviour there. Never echo the value.
+          if [ -z "$VAULT_KEY" ]; then
+            echo "::warning::EMAIL_CRED_PRIVATE_KEY not set — member dues payments will fail (vault cannot decrypt). SaaS intents unaffected."
+            exit 0
+          fi
+          printf 'EMAIL_CRED_PRIVATE_KEY<<EOF\n%s\nEOF\n' "$VAULT_KEY" >> "$GITHUB_ENV"
+          echo "Vault decrypt key restored ✓ (value not echoed)"
 
       - name: Mint + settle checkout intents (${{ matrix.instance }})
         if: env.SAFEPAY_CONFIGURED == 'true'
