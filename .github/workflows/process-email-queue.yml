@@ -23,7 +23,7 @@ name: Process Email Queue
 # GitHub cron instead of Cloud Functions.
 #
 # The instance matrix is GENERATED from scripts/instances/fleet.json by
-# scripts/genEmailMatrix.cjs (commit the regenerated file when fleet.json
+# scripts/genFleetMatrix.cjs (commit the regenerated file when fleet.json
 # changes). Each matrix leg needs a repo secret named <INSTANCE_UPPER>_SA_KEY
 # (contents of scripts/<instance>-sa.json); the master keeps the legacy
 # FIREBASE_SA_KEY name. EMAIL_CRED_PRIVATE_KEY is fleet-shared — the browser

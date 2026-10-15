@@ -136,4 +136,9 @@ jobs:
 
       - name: Queue sweep (read-only, credentials not configured yet)
         if: env.SAFEPAY_CONFIGURED != 'true'
-        run: node scripts/processSafepayQueue.cjs --instance=${{ matrix.instance }}
+        run: |
+          node scripts/processSafepayQueue.cjs --instance=${{ matrix.instance }}
+          # Vault "Test connection" (PASS 5) uses ONLY each gym's own vault
+          # keys — it must keep working even before the PLATFORM's SafePay
+          # account exists, or an admin's check button would time out forever.
+          node scripts/processSafepayQueue.cjs --instance=${{ matrix.instance }} --confirm --vault-checks-only
