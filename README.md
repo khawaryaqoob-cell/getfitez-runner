@@ -61,3 +61,14 @@ The Apps Script relay dispatches `workflow_dispatch` at a **hardcoded**
 repository. Until it is repointed here, relay "Send now" pings still land on
 the private repo. The cron path benefits immediately; the instant fast path only
 does once the relay is updated.
+
+## Operations notes
+
+- **2026-10-23 — scheduled-run cadence incident (C-4).** The `*/5` cron on
+  `process-safepay-queue.yml` was being delivered by GitHub only every 2–5 h
+  (runs #85–#96, 2026-10-21 → 2026-10-23), which starves checkout minting.
+  This commit is the repository-activity reset for GitHub's scheduled-workflow
+  throttle (scheduled runs are throttled on repos with no commit activity);
+  cadence is being measured from here. If delays recur, any in-repo commit
+  restores delivery — the schedules themselves live in the generator
+  (`scripts/generateRunnerRepo.cjs` in be-fit-pro), never edited here by hand.
