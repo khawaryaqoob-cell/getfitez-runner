@@ -77,5 +77,10 @@ jobs:
           printf '%s' "$SA_KEY" > scripts/${{ matrix.instance }}-sa.json
           node -e "const j=JSON.parse(require('fs').readFileSync('scripts/${{ matrix.instance }}-sa.json','utf8'));console.log('SA key valid ✓ project:',j.project_id)"
 
+      - name: Relay canary (a dead payment relay must go RED, never silent)
+        # reports/PAYMENT_TRIGGER_ROOT_CAUSE.md §B4 — the 2026-10-23 incident:
+        # both Apps Script GH PATs died and nothing noticed for ~7 days.
+        run: node scripts/relayCanary.cjs --instance=${{ matrix.instance }}
+
       - name: Reconcile seat counters
         run: node scripts/syncCodeCaps.cjs ${{ matrix.instance }} --confirm
