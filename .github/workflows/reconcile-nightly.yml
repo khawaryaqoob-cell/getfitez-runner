@@ -83,4 +83,11 @@ jobs:
         run: node scripts/relayCanary.cjs --instance=${{ matrix.instance }}
 
       - name: Reconcile seat counters
+        # ALWAYS RUN (2026-10-26): a RED relay canary must never skip healing.
+        # The canary sits above as the alarm and still turns the run red, but
+        # until now its failure skipped this step — so a dead relay PAT also
+        # silenced seat reconciliation and codeCaps sync (observed 3 nights:
+        # 10-24/25/26, last success 10-23). Seat recount, codeCaps mirror and
+        # orgSubs backfill must survive a broken relay.
+        if: always()
         run: node scripts/syncCodeCaps.cjs ${{ matrix.instance }} --confirm
