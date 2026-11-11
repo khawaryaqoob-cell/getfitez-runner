@@ -103,4 +103,16 @@ jobs:
         # income row (this leg goes red); exit 2 = the SA key was unreadable, also
         # a failure rather than a silent pass.
         if: always()
-        run: node scripts/reconcileSafepayLedger.cjs ${{ matrix.instance }}
+        run: node scripts/reconcileSafepayLedger.cjs ${{ matrix.instance }} --report-dir=reports/safepay-ledger
+
+      - name: Upload the online-payments reconciliation report
+        # Saved for later review: the run log expires, the report is what you
+        # open when someone asks why a night went red (or asks what the online
+        # receipts were). Uploaded on failure too — that is when it matters.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safepay-ledger-${{ matrix.instance }}
+          path: reports/safepay-ledger/
+          retention-days: 30
+          if-no-files-found: warn
