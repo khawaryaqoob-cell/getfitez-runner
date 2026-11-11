@@ -91,3 +91,16 @@ jobs:
         # orgSubs backfill must survive a broken relay.
         if: always()
         run: node scripts/syncCodeCaps.cjs ${{ matrix.instance }} --confirm
+
+      - name: Reconcile online payments vs business ledger
+        # Money-received-vs-income alarm, never a repair: the script only reads.
+        # Every settled SafePay intent (member_fee / program_sale) must have its
+        # businessLedger income row — settle writes both in one transaction, so a
+        # stale runner copy or a hand-marked intent is the only way one goes
+        # missing, and it used to leave received money invisible in the books.
+        # ALWAYS RUN: a RED relay canary or a failed seat recount must not hide a
+        # paid intent with no income line. Exit 1 = money in the gateway with no
+        # income row (this leg goes red); exit 2 = the SA key was unreadable, also
+        # a failure rather than a silent pass.
+        if: always()
+        run: node scripts/reconcileSafepayLedger.cjs ${{ matrix.instance }}
